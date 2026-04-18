@@ -1,35 +1,38 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { pool } = require('../config/db');
+const { supabase } = require('../config/supabase');
 
 const register = async (req, res) => {
   try {
     const { name, email, password, address, role } = req.body;
     const userRole = role || 'user';
 
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
-    if (existing.length > 0) {
-      return res.status(409).json({ message: 'Email already registered' });
-    }
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name, address, role: userRole }
+      }
+    });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const [result] = await pool.query(
-      'INSERT INTO users (name, email, password, address, role) VALUES (?, ?, ?, ?, ?)',
-      [name, email, hashedPassword, address || null, userRole]
-    );
+    if (authError) return res.status(400).json({ message: authError.message });
 
-    const [users] = await pool.query('SELECT id, name, email, role, address FROM users WHERE id = ?', [result.insertId]);
-    const user = users[0];
+    // Insert into public.users if not handled by a trigger
+    const { data: user, error: dbError } = await supabase
+      .from('users')
+      .upsert({
+        id: authData.user.id,
+        name,
+        email,
+        address,
+        role: userRole
+      })
+      .select()
+      .single();
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, name: user.name },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-    );
+    if (dbError) throw dbError;
 
     res.status(201).json({
-      message: 'Registration successful',
-      token,
+      message: 'Registration successful. Please check your email.',
+      token: authData.session?.access_token,
       user
     });
   } catch (error) {
@@ -42,32 +45,25 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (users.length === 0) {
-      return res.status(401).json({ message: 'Invalid email or password' });
-    }
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
 
-    const user = users[0];
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid email or password' });
-    }
+    if (authError) return res.status(401).json({ message: authError.message });
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, name: user.name },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-    );
+    // Fetch extra metadata from public.users
+    const { data: user, error: dbError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+
+    if (dbError) throw dbError;
 
     res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        address: user.address,
-      },
+      token: authData.session.access_token,
+      user
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -77,21 +73,13 @@ const login = async (req, res) => {
 
 const updatePassword = async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
-    const userId = req.user.id;
+    const { newPassword } = req.body;
 
-    const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
-    if (users.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
 
-    const isMatch = await bcrypt.compare(currentPassword, users[0].password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Current password is incorrect' });
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await pool.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+    if (error) return res.status(400).json({ message: error.message });
 
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
@@ -102,14 +90,17 @@ const updatePassword = async (req, res) => {
 
 const getMe = async (req, res) => {
   try {
-    const [users] = await pool.query(
-      'SELECT id, name, email, address, role FROM users WHERE id = ?',
-      [req.user.id]
-    );
-    if (users.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    res.json(users[0]);
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) return res.status(401).json({ message: 'Unauthorized' });
+
+    const { data: user, error: dbError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
+
+    if (dbError) throw dbError;
+    res.json(user);
   } catch (error) {
     console.error('Get me error:', error);
     res.status(500).json({ message: 'Internal server error' });
