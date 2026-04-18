@@ -50,16 +50,37 @@ const login = async (req, res) => {
       password
     });
 
-    if (authError) return res.status(401).json({ message: authError.message });
+    if (authError) {
+      return res.status(401).json({ message: authError.message });
+    }
 
     // Fetch extra metadata from public.users
-    const { data: user, error: dbError } = await supabase
+    let { data: user, error: dbError } = await supabase
       .from('users')
       .select('*')
       .eq('id', authData.user.id)
       .single();
 
-    if (dbError) throw dbError;
+    // IF user record is missing in public.users (due to previous RLS errors), 
+    // let's create it now using the metadata stored in Auth
+    if (!user) {
+        console.log("User record missing in public.users, attempting to repair...");
+        const meta = authData.user.user_metadata;
+        const { data: newUser, error: repairError } = await supabase
+            .from('users')
+            .upsert({
+                id: authData.user.id,
+                name: meta.name || 'User',
+                email: authData.user.email,
+                address: meta.address || '',
+                role: meta.role || 'user'
+            })
+            .select()
+            .single();
+        
+        if (repairError) throw repairError;
+        user = newUser;
+    }
 
     res.json({
       token: authData.session.access_token,
