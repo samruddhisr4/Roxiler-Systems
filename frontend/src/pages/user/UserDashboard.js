@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import API from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
-import { MdPerson, MdStar, MdEmail, MdLocationOn } from 'react-icons/md';
+import { MdStar, MdEmail, MdLocationOn } from 'react-icons/md';
 
 const UserDashboard = () => {
   const { user } = useAuth();

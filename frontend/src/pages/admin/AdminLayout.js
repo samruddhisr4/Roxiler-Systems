@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
 import AdminDashboard from './AdminDashboard';

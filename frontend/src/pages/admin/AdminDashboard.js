@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import API from '../../api/axios';
-import { MdPeople, MdStore, MdStar, MdTrendingUp } from 'react-icons/md';
+import { MdPeople, MdStore, MdStar } from 'react-icons/md';
 
 const AdminDashboard = () => {
   const [stats, setStats] = useState(null);

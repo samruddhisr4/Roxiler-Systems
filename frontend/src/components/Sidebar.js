@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import {
-  MdDashboard, MdPeople, MdStore, MdLogout, MdLock
+  MdLogout
 } from 'react-icons/md';
 
 const Sidebar = ({ navLinks }) => {
